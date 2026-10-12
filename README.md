@@ -1,4 +1,4 @@
-## DeepSeek Translator (Android)
+## AItranslater (Android)
 
 一个基于 Jetpack Compose 的三语（简体中文 / English / Français）翻译应用，界面风格参考谷歌翻译。用户在任意一个输入框录入内容后，会自动调用 AI Chat API，以流式方式把译文实时填充到另外两个输入框。
 
