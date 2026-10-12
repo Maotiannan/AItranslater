@@ -626,6 +626,7 @@ private fun TranslatorPreview() {
             onEnterConversation = {},
             onSettingsClick = {},
             onSettingsDismiss = {},
+            onSettingsProviderChange = {},
             onSettingsApiKeyChange = {},
             onSettingsBaseUrlChange = {},
             onSettingsModelChange = {},
