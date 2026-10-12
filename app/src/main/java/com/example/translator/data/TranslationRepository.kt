@@ -16,8 +16,8 @@ interface TranslationRepository {
     ): Flow<TranslationUpdate>
 }
 
-class DeepSeekTranslationRepository(
-    private val api: DeepSeekApi
+class ChatCompletionsTranslationRepository(
+    private val api: ChatCompletionsApi
 ) : TranslationRepository {
 
     override fun streamTranslations(

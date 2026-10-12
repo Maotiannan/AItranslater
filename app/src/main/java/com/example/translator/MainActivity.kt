@@ -39,6 +39,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.translator.data.AiProvider
 import com.example.translator.model.ConversationEntry
 import com.example.translator.model.Language
 import com.example.translator.ui.ConversationUiState
@@ -81,6 +82,7 @@ fun TranslatorApp() {
                     onAcknowledgeNotice = viewModel::acknowledgeConversationNotice,
                     onSettingsClick = viewModel::openSettings,
                     onSettingsDismiss = viewModel::dismissSettings,
+                    onSettingsProviderChange = viewModel::onSettingsProviderChange,
                     onSettingsApiKeyChange = viewModel::onSettingsApiKeyChange,
                     onSettingsBaseUrlChange = viewModel::onSettingsBaseUrlChange,
                     onSettingsModelChange = viewModel::onSettingsModelChange,
@@ -99,6 +101,7 @@ fun TranslatorApp() {
                     onEnterConversation = viewModel::enterConversationMode,
                     onSettingsClick = viewModel::openSettings,
                     onSettingsDismiss = viewModel::dismissSettings,
+                    onSettingsProviderChange = viewModel::onSettingsProviderChange,
                     onSettingsApiKeyChange = viewModel::onSettingsApiKeyChange,
                     onSettingsBaseUrlChange = viewModel::onSettingsBaseUrlChange,
                     onSettingsModelChange = viewModel::onSettingsModelChange,
@@ -121,6 +124,7 @@ fun TranslatorScreen(
     onEnterConversation: () -> Unit,
     onSettingsClick: () -> Unit,
     onSettingsDismiss: () -> Unit,
+    onSettingsProviderChange: (AiProvider) -> Unit,
     onSettingsApiKeyChange: (String) -> Unit,
     onSettingsBaseUrlChange: (String) -> Unit,
     onSettingsModelChange: (String) -> Unit,
@@ -207,6 +211,7 @@ fun TranslatorScreen(
         SettingsDialog(
             state = settingsUiState,
             onDismiss = onSettingsDismiss,
+            onProviderChange = onSettingsProviderChange,
             onApiKeyChange = onSettingsApiKeyChange,
             onBaseUrlChange = onSettingsBaseUrlChange,
             onModelChange = onSettingsModelChange,
@@ -466,6 +471,7 @@ private fun ConversationNoticeBanner(onDismiss: () -> Unit) {
 private fun SettingsDialog(
     state: SettingsUiState,
     onDismiss: () -> Unit,
+    onProviderChange: (AiProvider) -> Unit,
     onApiKeyChange: (String) -> Unit,
     onBaseUrlChange: (String) -> Unit,
     onModelChange: (String) -> Unit,
@@ -495,29 +501,63 @@ private fun SettingsDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    text = when {
-                        state.requiresApiKeySetup ->
-                            "请先填写 DeepSeek API Key。配置会保存在当前设备，本机后续直接打开即可使用。"
-                        state.hasBundledApiKey && state.apiKey.isBlank() ->
-                            "当前仍在使用打包默认配置，也可以在这里保存你自己的 API Key。"
-                        else ->
-                            "API Key 会保存在当前设备。Base URL 留空时继续使用默认 DeepSeek 接口。"
-                    },
+                    text = "AI 提供方",
                     style = MaterialTheme.typography.bodySmall
                 )
-                TextField(
-                    value = state.editApiKey,
-                    onValueChange = onApiKeyChange,
-                    label = { Text("API Key") },
-                    placeholder = { Text("请输入 DeepSeek API Key") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    AiProvider.values().forEach { provider ->
+                        FilterChip(
+                            selected = state.editProvider == provider,
+                            onClick = { onProviderChange(provider) },
+                            label = { Text(provider.displayName) }
+                        )
+                    }
+                }
+                if (state.editProvider == AiProvider.OLLAMA) {
+                    Text(
+                        text = "使用本机 Ollama 运行开源权重模型，无需 API Key。\n" +
+                            "1. 电脑上安装 Ollama 后执行：ollama pull gemma3\n" +
+                            "2. 启动服务：ollama serve\n" +
+                            "3. 模拟器访问宿主机用 10.0.2.2，真机请填电脑的局域网 IP。",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                } else {
+                    Text(
+                        text = when {
+                            state.requiresApiKeySetup ->
+                                "请先填写 DeepSeek API Key。配置会保存在当前设备，本机后续直接打开即可使用。"
+                            state.hasBundledApiKey && state.apiKey.isBlank() ->
+                                "当前仍在使用打包默认配置，也可以在这里保存你自己的 API Key。"
+                            else ->
+                                "API Key 会保存在当前设备。Base URL 留空时继续使用默认 DeepSeek 接口。"
+                        },
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    TextField(
+                        value = state.editApiKey,
+                        onValueChange = onApiKeyChange,
+                        label = { Text("API Key") },
+                        placeholder = { Text("请输入 DeepSeek API Key") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
                 TextField(
                     value = state.editBaseUrl,
                     onValueChange = onBaseUrlChange,
                     label = { Text("Base URL") },
-                    placeholder = { Text("默认：https://api.deepseek.com/chat/completions") },
+                    placeholder = {
+                        Text(
+                            text = if (state.editProvider == AiProvider.OLLAMA) {
+                                "默认：${AiProvider.OLLAMA.defaultBaseUrl}"
+                            } else {
+                                "默认：https://api.deepseek.com/chat/completions"
+                            }
+                        )
+                    },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -527,7 +567,9 @@ private fun SettingsDialog(
                     label = { Text("Model") },
                     placeholder = {
                         Text(
-                            text = if (state.defaultModel.isBlank()) {
+                            text = if (state.editProvider == AiProvider.OLLAMA) {
+                                "默认：gemma3（可选 ${AiProvider.OLLAMA_MODEL_SUGGESTIONS.drop(1).joinToString(" / ")}，需先 ollama pull）"
+                            } else if (state.defaultModel.isBlank()) {
                                 "留空使用默认模型"
                             } else {
                                 "留空使用默认模型：${state.defaultModel}"
@@ -641,6 +683,7 @@ fun ConversationScreen(
     onAcknowledgeNotice: () -> Unit,
     onSettingsClick: () -> Unit,
     onSettingsDismiss: () -> Unit,
+    onSettingsProviderChange: (AiProvider) -> Unit,
     onSettingsApiKeyChange: (String) -> Unit,
     onSettingsBaseUrlChange: (String) -> Unit,
     onSettingsModelChange: (String) -> Unit,
@@ -735,6 +778,7 @@ fun ConversationScreen(
         SettingsDialog(
             state = settingsUiState,
             onDismiss = onSettingsDismiss,
+            onProviderChange = onSettingsProviderChange,
             onApiKeyChange = onSettingsApiKeyChange,
             onBaseUrlChange = onSettingsBaseUrlChange,
             onModelChange = onSettingsModelChange,

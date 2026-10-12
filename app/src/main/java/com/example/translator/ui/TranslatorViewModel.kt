@@ -7,9 +7,10 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.translator.BuildConfig
+import com.example.translator.data.AiProvider
 import com.example.translator.data.ApiConfig
-import com.example.translator.data.DeepSeekApi
-import com.example.translator.data.DeepSeekTranslationRepository
+import com.example.translator.data.ChatCompletionsApi
+import com.example.translator.data.ChatCompletionsTranslationRepository
 import com.example.translator.data.SettingsRepository
 import com.example.translator.data.TranslationRepository
 import com.example.translator.model.ConversationEntry
@@ -29,7 +30,7 @@ import okhttp3.OkHttpClient
 class TranslatorViewModel(
     private val repository: TranslationRepository,
     private val settingsRepository: SettingsRepository,
-    private val api: DeepSeekApi
+    private val api: ChatCompletionsApi
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TranslatorUiState())
@@ -47,14 +48,17 @@ class TranslatorViewModel(
         viewModelScope.launch {
             settingsRepository.settings.collect { settings ->
                 val hasBundledApiKey = BuildConfig.DEEPSEEK_API_KEY.isNotBlank()
-                val requiresApiKeySetup = settings.apiKey.isBlank() && !hasBundledApiKey
+                val requiresApiKeySetup = settings.provider.requiresApiKey &&
+                    settings.apiKey.isBlank() && !hasBundledApiKey
                 val shouldPromptInitialSetup = requiresApiKeySetup && !_settingsUiState.value.hasShownInitialSetup
                 _settingsUiState.update { state ->
                     state.copy(
+                        provider = settings.provider,
                         apiKey = settings.apiKey,
                         baseUrl = settings.baseUrl,
                         model = settings.model,
                         preferredLanguage = settings.preferredSummaryLanguage,
+                        editProvider = if (state.isDialogVisible) state.editProvider else settings.provider,
                         editApiKey = if (state.isDialogVisible) state.editApiKey else settings.apiKey,
                         editBaseUrl = if (state.isDialogVisible) state.editBaseUrl else settings.baseUrl,
                         editModel = if (state.isDialogVisible) state.editModel else settings.model,
@@ -157,6 +161,7 @@ class TranslatorViewModel(
         _settingsUiState.update { state ->
             state.copy(
                 isDialogVisible = true,
+                editProvider = state.provider,
                 editApiKey = state.apiKey,
                 editBaseUrl = state.baseUrl,
                 editModel = state.model,
@@ -175,6 +180,10 @@ class TranslatorViewModel(
                 validationMessage = null
             )
         }
+    }
+
+    fun onSettingsProviderChange(provider: AiProvider) {
+        _settingsUiState.update { it.copy(editProvider = provider, validationMessage = null) }
     }
 
     fun onSettingsApiKeyChange(value: String) {
@@ -196,8 +205,9 @@ class TranslatorViewModel(
     fun saveSettings() {
         val drafts = _settingsUiState.value
         if (drafts.isSaving) return
+        val provider = drafts.editProvider
         val apiKey = drafts.editApiKey.trim()
-        if (apiKey.isBlank() && !drafts.hasBundledApiKey) {
+        if (provider.requiresApiKey && apiKey.isBlank() && !drafts.hasBundledApiKey) {
             _settingsUiState.update {
                 it.copy(validationMessage = "请先填写 DeepSeek API Key，保存后本机后续打开即可直接使用。")
             }
@@ -208,6 +218,7 @@ class TranslatorViewModel(
             _settingsUiState.update { it.copy(isSaving = true) }
             try {
                 settingsRepository.updateSettings(
+                    provider = provider,
                     apiKey = apiKey,
                     baseUrl = drafts.editBaseUrl.trim(),
                     model = drafts.editModel.trim(),
@@ -308,23 +319,33 @@ class TranslatorViewModel(
 
     private fun resolveApiConfig(): ApiConfig {
         val settings = _settingsUiState.value
-        val apiKey = settings.apiKey.ifBlank { BuildConfig.DEEPSEEK_API_KEY }
-        val baseUrl = settings.baseUrl.ifBlank { BuildConfig.DEEPSEEK_BASE_URL }
-        val model = settings.model.ifBlank { BuildConfig.DEEPSEEK_MODEL }
-        check(apiKey.isNotBlank()) {
-            "请先在设置中填写 DeepSeek API Key。保存后会保存在当前设备，本机后续打开即可直接使用。"
+        return when (settings.provider) {
+            AiProvider.OLLAMA -> ApiConfig(
+                // Ollama 不校验 Authorization，直接给占位值即可
+                apiKey = settings.apiKey.ifBlank { "ollama" },
+                baseUrl = settings.baseUrl.ifBlank { AiProvider.OLLAMA.defaultBaseUrl },
+                model = settings.model.ifBlank { AiProvider.OLLAMA.defaultModel }
+            )
+            AiProvider.DEEPSEEK -> {
+                val apiKey = settings.apiKey.ifBlank { BuildConfig.DEEPSEEK_API_KEY }
+                val baseUrl = settings.baseUrl.ifBlank { BuildConfig.DEEPSEEK_BASE_URL }
+                val model = settings.model.ifBlank { BuildConfig.DEEPSEEK_MODEL }
+                check(apiKey.isNotBlank()) {
+                    "请先在设置中填写 DeepSeek API Key。保存后会保存在当前设备，本机后续打开即可直接使用。"
+                }
+                check(baseUrl.isNotBlank()) {
+                    "DeepSeek Base URL 未配置。"
+                }
+                check(model.isNotBlank()) {
+                    "DeepSeek Model 未配置。"
+                }
+                ApiConfig(
+                    apiKey = apiKey,
+                    baseUrl = baseUrl,
+                    model = model
+                )
+            }
         }
-        check(baseUrl.isNotBlank()) {
-            "DeepSeek Base URL 未配置。"
-        }
-        check(model.isNotBlank()) {
-            "DeepSeek Model 未配置。"
-        }
-        return ApiConfig(
-            apiKey = apiKey,
-            baseUrl = baseUrl,
-            model = model
-        )
     }
 
     companion object {
@@ -334,10 +355,10 @@ class TranslatorViewModel(
                 val context = application.applicationContext
                 val client = OkHttpClient.Builder().build()
                 val settingsRepository = SettingsRepository(context)
-                val api = DeepSeekApi(client)
+                val api = ChatCompletionsApi(client)
 
                 TranslatorViewModel(
-                    repository = DeepSeekTranslationRepository(api),
+                    repository = ChatCompletionsTranslationRepository(api),
                     settingsRepository = settingsRepository,
                     api = api
                 )

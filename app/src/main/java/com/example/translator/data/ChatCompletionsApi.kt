@@ -17,7 +17,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okio.BufferedSource
 import java.io.IOException
 
-class DeepSeekApi(
+class ChatCompletionsApi(
     private val client: OkHttpClient,
     private val json: Json = Json { ignoreUnknownKeys = true }
 ) {
@@ -28,14 +28,14 @@ class DeepSeekApi(
         text: String,
         config: ApiConfig
     ) = callbackFlow<String> {
-        val payload = DeepSeekRequest(
+        val payload = ChatCompletionRequest(
             model = config.model,
             messages = listOf(
-                DeepSeekMessage(
+                ChatMessage(
                     role = "system",
                     content = systemPrompt(targetLanguage)
                 ),
-                DeepSeekMessage(
+                ChatMessage(
                     role = "user",
                     content = buildUserPrompt(sourceLanguage, targetLanguage, text)
                 )
@@ -44,7 +44,7 @@ class DeepSeekApi(
             stream = true
         )
 
-        val requestBody = json.encodeToString(DeepSeekRequest.serializer(), payload)
+        val requestBody = json.encodeToString(ChatCompletionRequest.serializer(), payload)
             .toRequestBody(JSON_MEDIA_TYPE)
 
         val request = Request.Builder()
@@ -59,9 +59,9 @@ class DeepSeekApi(
             try {
                 call.execute().use { response ->
                     if (!response.isSuccessful) {
-                        throw IOException("DeepSeek error ${response.code} ${response.message}")
+                        throw IOException("API error ${response.code} ${response.message}")
                     }
-                    val body = response.body ?: throw IOException("DeepSeek response body is empty")
+                    val body = response.body ?: throw IOException("Chat API response body is empty")
                     readStream(body.source())
                 }
                 close()
@@ -82,20 +82,20 @@ class DeepSeekApi(
         config: ApiConfig
     ): String {
         val content = buildSummaryPrompt(entries, preferredLanguage)
-        val payload = DeepSeekRequest(
+        val payload = ChatCompletionRequest(
             model = config.model,
             messages = listOf(
-                DeepSeekMessage(
+                ChatMessage(
                     role = "system",
                     content = "你是一个对话理解助手，请用${preferredLanguage.displayName}（${preferredLanguage.localeTag}）概括本段对话的语气、情绪和潜台词，限制在300字符内。"
                 ),
-                DeepSeekMessage(role = "user", content = content)
+                ChatMessage(role = "user", content = content)
             ),
             temperature = 0.4,
             stream = false
         )
 
-        val requestBody = json.encodeToString(DeepSeekRequest.serializer(), payload)
+        val requestBody = json.encodeToString(ChatCompletionRequest.serializer(), payload)
             .toRequestBody(JSON_MEDIA_TYPE)
 
         val request = Request.Builder()
@@ -107,10 +107,10 @@ class DeepSeekApi(
 
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
-                throw IOException("DeepSeek summary error ${response.code} ${response.message}")
+                throw IOException("Chat API summary error ${response.code} ${response.message}")
             }
             val body = response.body?.string() ?: ""
-            val completion = json.decodeFromString(DeepSeekCompletionResponse.serializer(), body)
+            val completion = json.decodeFromString(ChatCompletionResponse.serializer(), body)
             val text = completion.choices.firstOrNull()?.message?.content.orEmpty()
             return text.take(300)
         }
@@ -147,7 +147,7 @@ class DeepSeekApi(
             if (payload == DONE_TOKEN) break
 
             val chunk = runCatching {
-                json.decodeFromString(DeepSeekStreamChunk.serializer(), payload)
+                json.decodeFromString(ChatStreamChunk.serializer(), payload)
             }.getOrNull() ?: continue
 
             val delta = chunk.choices.firstOrNull()?.delta?.content.orEmpty()
@@ -177,42 +177,42 @@ class DeepSeekApi(
 }
 
 @Serializable
-private data class DeepSeekRequest(
+private data class ChatCompletionRequest(
     val model: String,
-    val messages: List<DeepSeekMessage>,
+    val messages: List<ChatMessage>,
     val temperature: Double,
     val stream: Boolean
 )
 
 @Serializable
-private data class DeepSeekMessage(
+private data class ChatMessage(
     val role: String,
     val content: String
 )
 
 @Serializable
-private data class DeepSeekStreamChunk(
-    val choices: List<DeepSeekChoice> = emptyList()
+private data class ChatStreamChunk(
+    val choices: List<ChatChoice> = emptyList()
 )
 
 @Serializable
-private data class DeepSeekChoice(
-    val delta: DeepSeekDelta? = null
+private data class ChatChoice(
+    val delta: ChatDelta? = null
 )
 
 @Serializable
-private data class DeepSeekDelta(
+private data class ChatDelta(
     val content: String? = null
 )
 
 @Serializable
-private data class DeepSeekCompletionResponse(
-    val choices: List<DeepSeekCompletionChoice> = emptyList()
+private data class ChatCompletionResponse(
+    val choices: List<ChatCompletionChoice> = emptyList()
 )
 
 @Serializable
-private data class DeepSeekCompletionChoice(
-    val message: DeepSeekMessage? = null
+private data class ChatCompletionChoice(
+    val message: ChatMessage? = null
 )
 
 private fun Language.speakerLabel(): String = when (this) {

@@ -20,6 +20,9 @@ class SettingsRepository(
 
     val settings: Flow<AppSettings> = context.settingsDataStore.data.map { prefs ->
         AppSettings(
+            provider = prefs[PROVIDER]
+                ?.let { runCatching { AiProvider.valueOf(it) }.getOrNull() }
+                ?: AiProvider.DEEPSEEK,
             apiKey = prefs[API_KEY].orEmpty(),
             baseUrl = prefs[BASE_URL].orEmpty(),
             model = prefs[MODEL].orEmpty(),
@@ -30,12 +33,14 @@ class SettingsRepository(
     }
 
     suspend fun updateSettings(
+        provider: AiProvider,
         apiKey: String,
         baseUrl: String,
         model: String,
         summaryLanguage: Language
     ) {
         context.settingsDataStore.edit { prefs ->
+            prefs[PROVIDER] = provider.name
             prefs[API_KEY] = apiKey
             prefs[BASE_URL] = baseUrl
             prefs[MODEL] = model
@@ -44,6 +49,7 @@ class SettingsRepository(
     }
 
     companion object {
+        private val PROVIDER = stringPreferencesKey("ai_provider")
         private val API_KEY = stringPreferencesKey("api_key")
         private val BASE_URL = stringPreferencesKey("base_url")
         private val MODEL = stringPreferencesKey("model")

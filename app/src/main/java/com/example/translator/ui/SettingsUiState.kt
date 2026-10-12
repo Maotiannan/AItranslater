@@ -1,12 +1,15 @@
 package com.example.translator.ui
 
+import com.example.translator.data.AiProvider
 import com.example.translator.model.Language
 
 data class SettingsUiState(
+    val provider: AiProvider = AiProvider.DEEPSEEK,
     val apiKey: String = "",
     val baseUrl: String = "",
     val model: String = "",
     val preferredLanguage: Language = Language.CHINESE,
+    val editProvider: AiProvider = AiProvider.DEEPSEEK,
     val editApiKey: String = "",
     val editBaseUrl: String = "",
     val editModel: String = "",
